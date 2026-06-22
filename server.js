@@ -176,56 +176,78 @@ app.get("/api/fx", async (req, res) => {
 });
 
 /* ============================================================
-   IA — proxy para a API da Anthropic (usa sua chave no servidor)
+   IA — resumo da busca (provedor configurável)
+   Prioridade: Gemini (TEM NÍVEL GRATUITO) > Anthropic (pago).
+   Defina UMA destas chaves no Render:
+     - GEMINI_API_KEY     gratuito via Google AI Studio (aistudio.google.com)
+     - ANTHROPIC_API_KEY  pago, por uso
+   Modelos (opcionais):
+     - GEMINI_MODEL       padrão gemini-2.5-flash
+     - ANTHROPIC_MODEL    padrão claude-haiku-4-5-20251001
    ============================================================ */
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
 const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL || "claude-haiku-4-5-20251001";
-
-app.post("/api/ask", async (req, res) => {
-  const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) return res.status(503).json({ error: "IA não configurada (defina ANTHROPIC_API_KEY)." });
-  const b = req.body || {};
-  const q = clean(b.q, 500);
-  if (!q) return res.status(400).json({ error: "Pergunta vazia." });
-  const ctx = b.context || {};
+function aiProvider() {
+  if (process.env.GEMINI_API_KEY) return "gemini";
+  if (process.env.ANTHROPIC_API_KEY) return "anthropic";
+  return null;
+}
+function buildPrompts(q, ctx) {
   const langName = { pt: "português", en: "English", es: "español" }[ctx.lang] || "português";
-
   const system =
     "Você é o assistente do Observatório de Tecnologia Global. " +
     "Responda em " + langName + ", em no máximo 3 frases, de forma objetiva e útil. " +
     "Use SOMENTE os dados de contexto fornecidos (feiras e áreas). " +
     "Não invente datas, números ou eventos que não estejam no contexto. " +
     "Se o contexto estiver vazio, diga que não há resultados para esses termos e sugira refinar a busca.";
-
-  const userMsg =
-    "Pergunta do usuário:\n" + q + "\n\n" +
-    "Contexto (JSON):\n" + JSON.stringify(ctx).slice(0, 6000);
-
+  const user = "Pergunta do usuário:\n" + q + "\n\nContexto (JSON):\n" + JSON.stringify(ctx).slice(0, 6000);
+  return { system, user };
+}
+async function askGemini(q, ctx) {
+  const { system, user } = buildPrompts(q, ctx);
+  const url = "https://generativelanguage.googleapis.com/v1beta/models/" +
+    encodeURIComponent(GEMINI_MODEL) + ":generateContent?key=" + encodeURIComponent(process.env.GEMINI_API_KEY);
+  const ctrl = new AbortController();
+  const to = setTimeout(() => ctrl.abort(), 20000);
+  const r = await fetch(url, {
+    method: "POST", signal: ctrl.signal,
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      system_instruction: { parts: [{ text: system }] },
+      contents: [{ role: "user", parts: [{ text: user }] }],
+      generationConfig: { maxOutputTokens: 400, temperature: 0.4 }
+    })
+  });
+  clearTimeout(to);
+  if (!r.ok) { const t = await r.text().catch(() => ""); throw new Error("gemini " + r.status + " " + t.slice(0, 200)); }
+  const data = await r.json();
+  const parts = (((data.candidates || [])[0] || {}).content || {}).parts || [];
+  return parts.map(p => p.text || "").join("").trim();
+}
+async function askAnthropic(q, ctx) {
+  const { system, user } = buildPrompts(q, ctx);
+  const ctrl = new AbortController();
+  const to = setTimeout(() => ctrl.abort(), 20000);
+  const r = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST", signal: ctrl.signal,
+    headers: { "x-api-key": process.env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+    body: JSON.stringify({ model: ANTHROPIC_MODEL, max_tokens: 400, system, messages: [{ role: "user", content: user }] })
+  });
+  clearTimeout(to);
+  if (!r.ok) { const t = await r.text().catch(() => ""); throw new Error("anthropic " + r.status + " " + t.slice(0, 200)); }
+  const data = await r.json();
+  return (data.content || []).map(b => (b.type === "text" ? b.text : "")).join("\n").trim();
+}
+app.post("/api/ask", async (req, res) => {
+  const provider = aiProvider();
+  if (!provider) return res.status(503).json({ error: "IA não configurada. Defina GEMINI_API_KEY (gratuito) ou ANTHROPIC_API_KEY no Render." });
+  const b = req.body || {};
+  const q = clean(b.q, 500);
+  if (!q) return res.status(400).json({ error: "Pergunta vazia." });
+  const ctx = b.context || {};
   try {
-    const ctrl = new AbortController();
-    const to = setTimeout(() => ctrl.abort(), 20000);
-    const r = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      signal: ctrl.signal,
-      headers: {
-        "x-api-key": key,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json"
-      },
-      body: JSON.stringify({
-        model: ANTHROPIC_MODEL,
-        max_tokens: 400,
-        system,
-        messages: [{ role: "user", content: userMsg }]
-      })
-    });
-    clearTimeout(to);
-    if (!r.ok) {
-      const txt = await r.text().catch(() => "");
-      return res.status(502).json({ error: "Falha na IA.", detail: txt.slice(0, 300) });
-    }
-    const data = await r.json();
-    const answer = (data.content || []).map(b => (b.type === "text" ? b.text : "")).join("\n").trim();
-    res.json({ answer });
+    const answer = provider === "gemini" ? await askGemini(q, ctx) : await askAnthropic(q, ctx);
+    res.json({ answer, provider });
   } catch (e) {
     res.status(502).json({ error: "IA indisponível no momento." });
   }
@@ -246,10 +268,10 @@ app.post("/api/push/subscribe", (req, res) => {
 /* ============================================================
    ESTÁTICOS + boot
    ============================================================ */
-app.get("/api/health", (req, res) => res.json({ ok: true, ai: !!process.env.ANTHROPIC_API_KEY, suppliers: readSuppliers().length }));
+app.get("/api/health", (req, res) => res.json({ ok: true, ai: !!aiProvider(), provider: aiProvider(), suppliers: readSuppliers().length }));
 
 app.use(express.static(__dirname, { extensions: ["html"] }));
 app.get("*", (req, res) => res.sendFile(path.join(__dirname, "index.html")));
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log("Observatório no ar em :" + PORT + " | IA:" + (!!process.env.ANTHROPIC_API_KEY) + " | modelo:" + ANTHROPIC_MODEL));
+app.listen(PORT, () => console.log("Observatório no ar em :" + PORT + " | IA:" + (aiProvider() || "off")));
