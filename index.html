@@ -346,6 +346,7 @@
       <div class="sup-row sup-filters">
         <select id="sup-fcat" class="sup-sel" aria-label="Categoria"></select>
         <select id="sup-fcountry" class="sup-sel" aria-label="País"></select>
+        <button class="btn primary" type="button" id="sup-find"><span aria-hidden="true">🔍</span> <span data-i18n="catSearch">Buscar</span></button>
         <span class="count" id="sup-cnt"></span>
       </div>
       <div class="sup-list" id="sup-list"></div>
@@ -493,7 +494,7 @@ const I18N={
     legHot:"Alta tração", legGrow:"Em expansão", legEmerg:"Emergente", newsHead:"Notícias recentes", newsMore:"ver mais no Google News",
     newsLoading:"Carregando notícias…", newsNone:"Sem manchetes agora.",
     supTitle:"Fornecedores de tecnologia", supPlaceholder:"O que você procura? ex.: paletização autônoma",
-    supWeb:"Buscar na web", supCatalog:"Catálogo interno", supCount:n=>n+(n===1?" fornecedor":" fornecedores"),
+    supWeb:"Buscar na web", catSearch:"Buscar", supCatalog:"Catálogo interno", supCount:n=>n+(n===1?" fornecedor":" fornecedores"),
     supNoneFilter:"Nenhum fornecedor com esses filtros.", allCats:"Todas as categorias", allCountries:"Todos os países",
     fName:"Nome do fornecedor *", fCountry:"País *", fCat:"Categoria…", fSite:"Site (https://...) *", fDesc:"Descrição curta", fContact:"Contato (telefone/e-mail) — opcional",
     fSave:"Salvar neste navegador", fShare:"Publicar para todos", fCancel:"Cancelar",
@@ -524,7 +525,7 @@ const I18N={
     legHot:"High traction", legGrow:"Expanding", legEmerg:"Emerging", newsHead:"Recent news", newsMore:"more on Google News",
     newsLoading:"Loading news…", newsNone:"No headlines right now.",
     supTitle:"Technology suppliers", supPlaceholder:"What are you looking for? e.g. autonomous palletizing",
-    supWeb:"Search the web", supCatalog:"Internal catalog", supCount:n=>n+(n===1?" supplier":" suppliers"),
+    supWeb:"Search the web", catSearch:"Search", supCatalog:"Internal catalog", supCount:n=>n+(n===1?" supplier":" suppliers"),
     supNoneFilter:"No suppliers match these filters.", allCats:"All categories", allCountries:"All countries",
     fName:"Supplier name *", fCountry:"Country *", fCat:"Category…", fSite:"Website (https://...) *", fDesc:"Short description", fContact:"Contact (phone/email) — optional",
     fSave:"Save in this browser", fShare:"Publish for everyone", fCancel:"Cancel",
@@ -555,7 +556,7 @@ const I18N={
     legHot:"Alta tracción", legGrow:"En expansión", legEmerg:"Emergente", newsHead:"Noticias recientes", newsMore:"más en Google News",
     newsLoading:"Cargando noticias…", newsNone:"Sin titulares por ahora.",
     supTitle:"Proveedores de tecnología", supPlaceholder:"¿Qué buscas? ej.: paletizado autónomo",
-    supWeb:"Buscar en la web", supCatalog:"Catálogo interno", supCount:n=>n+(n===1?" proveedor":" proveedores"),
+    supWeb:"Buscar en la web", catSearch:"Buscar", supCatalog:"Catálogo interno", supCount:n=>n+(n===1?" proveedor":" proveedores"),
     supNoneFilter:"Ningún proveedor con esos filtros.", allCats:"Todas las categorías", allCountries:"Todos los países",
     fName:"Nombre del proveedor *", fCountry:"País *", fCat:"Categoría…", fSite:"Sitio (https://...) *", fDesc:"Descripción corta", fContact:"Contacto (teléfono/correo) — opcional",
     fSave:"Guardar en este navegador", fShare:"Publicar para todos", fCancel:"Cancelar",
@@ -1032,6 +1033,7 @@ function updateConverter(){
   rebuildFilters();
   fcat.addEventListener("change",render);
   fcountry.addEventListener("change",render);
+  document.getElementById("sup-find").addEventListener("click",render);
 
   function showCatalog(){catalog.hidden=false;render();}
   document.getElementById("sup-cat").addEventListener("click",function(){if(catalog.hidden){showCatalog();}else{catalog.hidden=true;}});
